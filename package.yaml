@@ -26,6 +26,8 @@ dependencies:
   - vector
   - bytestring
   - JuicyPixels
+  - Glob
+  - filepath
 
 executables:
   lords-of-realms2-parser:
