@@ -1,40 +1,45 @@
+{-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE NoImplicitPrelude #-}
-{-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE UndecidableInstances #-}
 module Main where
 
-import Prelude((-), (*), (+), compare, uncurry)
-import qualified Prelude as P
-import Control.Monad hiding (replicateM)
-import Control.Applicative
-import Codec.Picture.Types
 import Codec.Picture.Png
+import Codec.Picture.Types
+import Control.Applicative
+import Control.Monad hiding (replicateM)
+import Data.ByteString hiding (putStrLn, zipWith, head, maximum, zip, replicate, length)
+import Data.ByteString.Lazy (toStrict)
+import Data.Either
+import Data.Bits
+import Data.Foldable
+import Data.Function
+import Data.Functor
+import Data.Functor.Identity
+import Data.Proxy
+import Data.Int
+import Data.Maybe
+import Data.Monoid
+import Data.Serialize.Get
+import Data.String
+import Data.Traversable
+import Data.Vector hiding (drop, take, maximum, mapM_, mapM, sequence, length)
+import Data.Word (Word16, Word32, Word8)
 import Debug.Trace
 import Numeric
-import Data.ByteString hiding (putStrLn, zipWith, head, maximum, zip)
-import Data.ByteString.Lazy (toStrict)
-import Data.Serialize.Get
-import Data.Either
-import Data.Functor
-import Data.Function
-import Data.Traversable
-import Data.Foldable
-import Data.Maybe
-import Data.String
-import Data.Monoid
 import qualified Data.List as L
-import Data.Vector hiding (drop, take, maximum, mapM_, mapM, sequence)
-import Text.Show (Show)
-import Data.Int
-import Data.Word (Word16, Word32, Word8)
-import Prelude (undefined, fromIntegral)
-import System.FilePath.Glob
+import Prelude((-), (*), (+), (<), (==), compare, uncurry, undefined, fromIntegral, min)
+import qualified Prelude as P
 import System.FilePath
+import System.FilePath.Glob
 import System.IO (IO, putStrLn, print, FilePath)
+import Text.Show (Show, show)
 
 
-data Tile = Tile
+data Tile a = Tile
     { width :: Int
     , height :: Int
     , offset :: Word32
@@ -44,20 +49,30 @@ data Tile = Tile
     , extraRows :: Word32
     , unknowenByte1 :: Word32
     , unknowenByte2 :: Word32
+    , indicesToPallet :: a (Vector Word8)
     }
-  deriving (Show)
 
-data TileWithData = TileWithData
-    { tile :: Tile
-    , indicesToPallet :: Vector Word8
+tileHeaderToTile :: Tile Proxy -> Vector Word8 -> Tile Identity
+tileHeaderToTile Tile{..} indices = Tile
+    { width
+    , height
+    , offset
+    , x
+    , y
+    , extraType
+    , extraRows
+    , unknowenByte1
+    , unknowenByte2
+    , indicesToPallet = Identity indices
     }
-  deriving (Show)
+
+deriving instance (Show (a (Vector Word8))) => Show (Tile a)
 
 data File = File
     { unknowenByte3 :: Word16
     , numberOfTiles :: Word16
     , unknowenByte4 :: Word32
-    , tiles :: Vector TileWithData
+    , tiles :: Vector (Tile Identity)
     }
   deriving (Show)
 
@@ -114,7 +129,6 @@ convertBy
 convertBy f input output = do
     putStrLn $ "Input file: " <> input
     putStrLn $ " Output file: " <> output
-    pallet <- runGet getFile <$> readFile input >>= eitherToError
     file <- runGet getFile <$> readFile input >>= eitherToError
     image <- f file
     writeFile output . toStrict $ encodePng image
@@ -134,22 +148,41 @@ getFile = do
     unknowenByte3' <- getWord16le
     numberOfTiles' <- getWord16le
     unknowenByte4' <- getWord32le
-    tiles' <- replicateM (fromIntegral numberOfTiles') getTile
-    dataStartPosition <- bytesRead
-    data' <- remaining >>= getByteString
-
-    let zipedTiles = zipWith TileWithData tiles'
-            $ fmap (getTileData dataStartPosition data') tiles'
-
-    pure $ File unknowenByte3' numberOfTiles' unknowenByte4' zipedTiles
+    tiles' <- replicateM (fromIntegral numberOfTiles') getTileHeader
+    finalTiles <- mapM (if testBit unknowenByte3' 0 then getRLETile else getTile) tiles'
+    pure $ File unknowenByte3' numberOfTiles' unknowenByte4' finalTiles
   where
-    getTileData :: Int -> ByteString -> Tile -> Vector Word8
-    getTileData dataStartPosition data' Tile{..} =
-        fromList . unpack . take ((fromIntegral height) * (fromIntegral width))
-        $ drop (fromIntegral offset - dataStartPosition) data'
+    getTile :: Tile Proxy -> Get (Tile Identity)
+    getTile header@Tile{..} = do
+        kwa <- remaining
+        let foo = show (height * width) <> " kwa: " <> show kwa <> "\n"
+        indices <- getByteString $ trace foo $ min (height * width) kwa
+        pure $ tileHeaderToTile header . fromList . unpack $ indices
 
-getTile :: Get Tile
-getTile = Tile
+    getRLETile :: Tile Proxy -> Get (Tile Identity)
+    getRLETile header@Tile{..} =
+        tileHeaderToTile header <$> getRLEData (fromIntegral (height * width))
+
+getRLEData :: Int -> Get (Vector Word8)
+getRLEData size = go mempty
+  where
+    go :: Vector Word8 -> Get (Vector Word8)
+    go pixels = if length pixels < size
+        then readData pixels
+        else pure pixels
+
+    readData pixels = do
+        numOfOpaquePixels <- fromIntegral <$> getWord8
+        if numOfOpaquePixels == 0
+            then do
+                numberOfTransparetnPixels <- fromIntegral <$> getWord8
+                go $ pixels <> replicate numberOfTransparetnPixels 0
+            else do
+                data' <- fromList . unpack <$> getByteString numOfOpaquePixels
+                go $ pixels <> data'
+
+getTileHeader :: Get (Tile Proxy)
+getTileHeader = Tile
     <$> fmap fromIntegral getWord16le
     <*> fmap fromIntegral getWord16le
     <*> getWord32le
@@ -159,11 +192,12 @@ getTile = Tile
     <*> fmap fromIntegral getWord8
     <*> fmap fromIntegral getWord8
     <*> fmap fromIntegral getWord8
+    <*> pure Proxy
 
-getSize :: Vector TileWithData -> (Int, Int)
+getSize :: Vector (Tile a) -> (Int, Int)
 getSize tiles =
-    ( maximum $ fmap (\(TileWithData Tile{..} _) -> x + width) tiles
-    , maximum $ fmap (\(TileWithData Tile{..} _) -> y + height) tiles
+    ( maximum $ fmap (\Tile{..} -> x + width) tiles
+    , maximum $ fmap (\Tile{..} -> y + height) tiles
     )
 
 fileToGrayImage :: File -> IO (Image Pixel8)
@@ -173,9 +207,9 @@ fileToGrayImage File{..} = do
     mapM_ (fillPixel image) . fold $ fmap dataWihtCoordiantes tiles
     unsafeFreezeImage image
   where
-    dataWihtCoordiantes :: TileWithData -> Vector (Word8, (Int, Int))
-    dataWihtCoordiantes (TileWithData Tile{..} data') =
-        zip data' $ fromList coordinates
+    dataWihtCoordiantes :: Tile Identity -> Vector (Word8, (Int, Int))
+    dataWihtCoordiantes Tile{..} =
+        zip (runIdentity indicesToPallet) $ fromList coordinates
       where
         coordinates = [(x, y) | y <- [y..y+height], x <- [x..x+width]]
 
@@ -188,9 +222,9 @@ fileToRGBImage maybePallet File{..} = do
     mapM_ (fillPixel image) . fold $ fmap dataWihtCoordiantes tiles
     unsafeFreezeImage image
   where
-    dataWihtCoordiantes :: TileWithData -> Vector (Word8, (Int, Int))
-    dataWihtCoordiantes (TileWithData Tile{..} data') =
-        zip data' $ fromList coordinates
+    dataWihtCoordiantes :: Tile Identity -> Vector (Word8, (Int, Int))
+    dataWihtCoordiantes Tile{..} =
+        zip (runIdentity indicesToPallet) $ fromList coordinates
       where
         coordinates = [(x, y) | y <- [y..y+height-1], x <- [x..x+width-1]]
 
@@ -455,14 +489,6 @@ fileToRGBImage maybePallet File{..} = do
         , PixelRGB8 255 255 0
         , PixelRGB8 255 255 255
         ]
-
-magic :: File -> IO ()
-magic File{..} = writeFile "asdf.png" . toStrict . encodePng $ generateImage
-    (\x y -> fromMaybe 0 $ data' !? (y * (fromIntegral width) + x))
-    (fromIntegral width)
-    (fromIntegral height)
-  where
-    TileWithData Tile{..} data' = head tiles
 
 main :: IO ()
 main = putStrLn "hello world"
