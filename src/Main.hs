@@ -11,7 +11,8 @@ import Codec.Picture.Png
 import Codec.Picture.Types
 import Control.Applicative
 import Control.Monad hiding (replicateM)
-import Data.ByteString hiding (putStrLn, zipWith, head, maximum, zip, replicate, length)
+import Control.Monad.ST
+import Data.ByteString hiding (putStrLn, zipWith, head, maximum, zip, replicate, length, take)
 import Data.ByteString.Lazy (toStrict)
 import Data.Either
 import Data.Bits
@@ -27,16 +28,18 @@ import Data.Serialize.Get
 import Data.String
 import Data.Traversable
 import Data.Vector hiding (drop, take, maximum, mapM_, mapM, sequence, length)
+import qualified Data.Vector.Mutable as VM
 import Data.Word (Word16, Word32, Word8)
 import Debug.Trace
 import Numeric
 import qualified Data.List as L
-import Prelude((-), (*), (+), (<), (==), compare, uncurry, undefined, fromIntegral, min)
+import Prelude((-), (*), (/), div, (+), (<), (==), (/=), compare, uncurry, undefined, fromIntegral, min, take)
 import qualified Prelude as P
 import System.FilePath
 import System.FilePath.Glob
-import System.IO (IO, putStrLn, print, FilePath)
+import System.IO (IO, putStrLn, print, FilePath, Handle)
 import Text.Show (Show, show)
+import Text.Printf (printf, hPrintf)
 
 
 data Tile a = Tile
@@ -84,26 +87,29 @@ getPallet = replicateM 256 getPixel
         <*> fmap (2*) getWord8
         <*> fmap (2*) getWord8
 
-getFileHeader :: Get (Word16, Word16, Word32)
-getFileHeader = do
-    unknowenByte3' <- getWord16le
-    numberOfTiles' <- getWord16le
-    unknowenByte4' <- getWord32le
-    pure (unknowenByte3', numberOfTiles', unknowenByte4')
-
-printFileHeaders :: IO ()
-printFileHeaders = do
-    files <- globDir1 (compile "*.pl8") "/home/yrid/.local/share/Steam/steamapps/common/Lords of the Realm II/English/Lords of the Realm II/"
-    headers <- sequence <$> mapM (\f -> fmap (fmap (magic f) . runGet getFileHeader) $ readFile f) files
-    either putStrLn (mapM_ printHeader) headers
+printFileHeaders :: Handle -> IO ()
+printFileHeaders fHandle = do
+    files <- L.sort <$> globDir1 (compile "Town1*.pl8") "/home/yrid/.local/share/Steam/steamapps/common/Lords of the Realm II/English/Lords of the Realm II/"
+    for_ files $ \f -> do
+        putStrLn f
+        parsedFile <- fmap (fmap (magic f) . (runGet getFile)) $ readFile f
+        either putStrLn printHeader parsedFile
   where
-    printHeader :: (Word16, Word16, Word32, String) -> IO ()
-    printHeader (a, b, c, f) =
-        putStrLn . prepend0x . showHex a . addSpace . prepend0x . showHex b
-        . addSpace . prepend0x $ showHex c " " <> f
-    addSpace s = " " <> s
-    prepend0x s = "0x" <> s
-    magic f (a, b, c) = (a, b, c, f)
+    printHeader :: (File, FilePath) -> IO ()
+    printHeader (File{..}, filePath) = do
+        hPrintf fHandle "0x%08x 0x%04x %s\n" unknowenByte4 unknowenByte3 filePath
+        mapM_ printTileHeader tiles
+
+    magic :: FilePath -> File -> (File, FilePath)
+    magic filePath file = (file, filePath)
+
+    printTileHeader :: Tile a -> IO ()
+    printTileHeader Tile{..} =
+        if extraType /= 0
+            then do
+                hPrintf fHandle "    extra type: 0x%08x extraRows: %d" extraType extraRows
+                hPrintf fHandle " offset: %d width: %d height: %d\n" offset width height
+            else pure ()
 
 convertFiles :: IO ()
 convertFiles = do
@@ -151,17 +157,33 @@ getFile = do
     tiles' <- replicateM (fromIntegral numberOfTiles') getTileHeader
     finalTiles <- mapM (if testBit unknowenByte3' 0 then getRLETile else getTile) tiles'
     pure $ File unknowenByte3' numberOfTiles' unknowenByte4' finalTiles
-  where
-    getTile :: Tile Proxy -> Get (Tile Identity)
-    getTile header@Tile{..} = do
-        kwa <- remaining
-        let foo = show (height * width) <> " kwa: " <> show kwa <> "\n"
-        indices <- getByteString $ trace foo $ min (height * width) kwa
-        pure $ tileHeaderToTile header . fromList . unpack $ indices
 
-    getRLETile :: Tile Proxy -> Get (Tile Identity)
-    getRLETile header@Tile{..} =
-        tileHeaderToTile header <$> getRLEData (fromIntegral (height * width))
+getTile :: Tile Proxy -> Get (Tile Identity)
+getTile header@Tile{..} = do
+    if extraType == 0
+       then getSimplTile header
+       else getISOTile header
+
+getISOTile :: Tile Proxy -> Get (Tile Identity)
+getISOTile header@Tile{..} = do
+    let rightOffset = if extraType == 3 then (width `div` 2) + 1 else width
+    let leftOffset = if extraType == 4 then (width `div` 2) - 1 else 0
+    -- 900 is precomputed value for base data of the ISO image.
+    data' <- getByteString $ traceShowId $ 900 + (fromIntegral extraRows)
+        * (rightOffset - leftOffset)
+    pure $ tileHeaderToTile header Control.Applicative.empty
+
+getSimplTile :: Tile Proxy -> Get (Tile Identity)
+getSimplTile header@Tile{..} = do
+    kwa <- remaining
+    -- let foo = show (height * width) <> " kwa: " <> show kwa <> "\n"
+    -- indices <- getByteString $ trace foo $ min (height * width) kwa
+    indices <- getByteString $ min (height * width) kwa
+    pure $ tileHeaderToTile header . fromList . unpack $ indices
+
+getRLETile :: Tile Proxy -> Get (Tile Identity)
+getRLETile header@Tile{..} =
+    tileHeaderToTile header <$> getRLEData (fromIntegral (height * width))
 
 getRLEData :: Int -> Get (Vector Word8)
 getRLEData size = go mempty
@@ -182,7 +204,7 @@ getRLEData size = go mempty
                 go $ pixels <> data'
 
 getTileHeader :: Get (Tile Proxy)
-getTileHeader = Tile
+getTileHeader = fmap correctextraRows $ Tile
     <$> fmap fromIntegral getWord16le
     <*> fmap fromIntegral getWord16le
     <*> getWord32le
@@ -193,6 +215,10 @@ getTileHeader = Tile
     <*> fmap fromIntegral getWord8
     <*> fmap fromIntegral getWord8
     <*> pure Proxy
+  where
+    correctextraRows tile@Tile{..} = tile
+        { extraRows = if extraType == 1 then 0 else extraRows
+        }
 
 getSize :: Vector (Tile a) -> (Int, Int)
 getSize tiles =
@@ -491,4 +517,4 @@ fileToRGBImage maybePallet File{..} = do
         ]
 
 main :: IO ()
-main = putStrLn "hello world"
+main = convertFiles
