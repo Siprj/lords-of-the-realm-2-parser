@@ -5,6 +5,7 @@
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE Strict #-}
 module Main where
 
 import Codec.Picture.Png
@@ -12,7 +13,7 @@ import Codec.Picture.Types
 import Control.Applicative
 import Control.Monad hiding (replicateM)
 import Control.Monad.ST
-import Control.Monad.Trans.Accum
+import qualified Control.Monad.Trans.State.Strict as S
 import Control.Monad.Trans.Class
 import Data.ByteString hiding (putStrLn, zipWith, head, maximum, zip, replicate, length, take)
 import Data.ByteString.Lazy (toStrict)
@@ -36,7 +37,7 @@ import Data.Word (Word16, Word32, Word8)
 import Debug.Trace
 import Numeric
 import qualified Data.List as L
-import Prelude((-), (*), (/), div, (+), (<), (==), (/=), compare, uncurry, undefined, fromIntegral, min, take)
+import Prelude((-), (*), (/), div, (+), (<), (>=), (==), (/=), (<=),  (||), compare, uncurry, undefined, fromIntegral, min, take)
 import qualified Prelude as P
 import System.FilePath
 import System.FilePath.Glob
@@ -52,7 +53,7 @@ data Tile a = Tile
     , x :: Int
     , y :: Int
     , extraType :: Word32
-    , extraRows :: Word32
+    , extraRows :: Int
     , unknowenByte1 :: Word32
     , unknowenByte2 :: Word32
     , indicesToPallet :: a (Vector Word8)
@@ -86,13 +87,13 @@ getPallet :: Get (Vector PixelRGB8)
 getPallet = replicateM 256 getPixel
   where
     getPixel = PixelRGB8
-        <$> fmap (2*) getWord8
-        <*> fmap (2*) getWord8
-        <*> fmap (2*) getWord8
+        <$> fmap (4*) getWord8
+        <*> fmap (4*) getWord8
+        <*> fmap (4*) getWord8
 
 printFileHeaders :: Handle -> IO ()
 printFileHeaders fHandle = do
-    files <- L.sort <$> globDir1 (compile "Town1*.pl8") "/home/yrid/.local/share/Steam/steamapps/common/Lords of the Realm II/English/Lords of the Realm II/"
+    files <- L.sort <$> globDir1 (compile "*.pl8") "/home/yrid/.local/share/Steam/steamapps/common/Lords of the Realm II/English/Lords of the Realm II/"
     for_ files $ \f -> do
         putStrLn f
         parsedFile <- fmap (fmap (magic f) . (runGet getFile)) $ readFile f
@@ -169,43 +170,91 @@ getTile header@Tile{..} = do
 
 getISOTile :: Tile Proxy -> Get (Tile Identity)
 getISOTile header@Tile{..} = do
-    let rightOffset = if extraType == 3 then halfWidth + 1 else width
-    let leftOffset = if extraType == 4 then halfWidth - 1 else 0
-    -- 900 is precomputed value for base data of the ISO image.
-    data' <- getByteString $ traceShowId $ 900 + (fromIntegral extraRows)
+    data' <- getByteString $ dataLength + (fromIntegral extraRows)
         * (rightOffset - leftOffset)
-    pure $ tileHeaderToTile header (indices data')
+    let magic = tileHeaderToTile header (indices data')
+    pure $ magic { height = height + extraRows
+                 , y = y - extraRows
+                 }
   where
     indices data' = runST $ do
-        indices' <- VM.replicate 0 900
-        q <- flipedEvalAccumT @Int 0 $ do
-            for_ [0 .. halfHeight - 1] $ \y ->
-                for_ [firstHalfRowStart y .. firstHalfRowStop y -1] $ \x -> (do
-                    dataIndex <- look
-                    lift $ VM.write indices' (y * width + x) (data' `index` dataIndex)
-                    add 1)
+        indices' <- VM.replicate ((height + extraRows)* width) 0
+        flip S.execStateT 0
+            ( fillTopHalf data' indices'
+            >> fillBottomHalf data' indices'
+            >> fillExtracs data' indices'
+            )
         V.basicUnsafeFreeze indices'
---        q <- runAccum @Int 0 do
---            for_ [0 .. halfHeight - 1] $ \y ->
---                for_ [firstHalfRowStart y .. firstHalfRowStop y -1] $ \x ->
---                    dataIndex <- look
---                    lift $ write indices' (y * width + x) (data' ! dataIndex)
---                    add 1
-    flipedEvalAccumT = flip evalAccumT
 
+    fillTopHalf data' indices' = do
+        for_ [0 .. halfHeight - 1] $ \y ->
+            for_ [firstHalfRowStart y .. firstHalfRowStop y - 1] $ \x -> (do
+                dataIndex <- S.get
+                lift $ VM.write indices' ((y + extraRows) * width + x) (data' `index` dataIndex)
+                S.modify (+1))
+
+    fillBottomHalf data' indices' = do
+        for_ [halfHeight .. height - 1] $ \y ->
+            for_ [secondHalfRowStart y .. secondHalfRowStop y - 1] $ \x -> (do
+                dataIndex <- S.get
+                lift $ VM.write indices' ((y + extraRows) * width + x) (data' `index` dataIndex)
+                S.modify (+1)
+                )
+
+    fillExtracs data' indices' = do
+        for_ (dn extraRows 0) $ \y ->
+            for_ (up leftOffset rightOffset) $ \x -> (do
+                let yMod = if x <= halfWidth
+                        then y + (halfHeight - 1) - (x `div` 2)
+                        else y + (x `div` 2) - (halfHeight - 1)
+                dataIndex <- S.get
+                if (data' `index` dataIndex) == 0
+                   then pure ()
+                   else lift $ VM.write indices' (yMod * width + x) (data' `index` dataIndex)
+                S.modify (+1)
+                )
+
+    rightOffset :: Int
+    rightOffset = if extraType == 3 then halfWidth + 1 else width
+    leftOffset :: Int
+    leftOffset = if extraType == 4 then halfWidth - 1 else 0
+    halfWidth :: Int
     halfWidth = width `div` 2
+    halfHeight :: Int
     halfHeight = height `div` 2
+    firstHalfRowStart :: Int -> Int
     firstHalfRowStart y = (halfHeight - 1 - y) * 2
+    firstHalfRowStop :: Int -> Int
     firstHalfRowStop y = firstHalfRowStart y + (y * 4) + 2
-    firstHalfCoordinates = [ (y,x)
-        | y <- [0 .. halfHeight - 1]
-        , x <- [firstHalfRowStart y .. firstHalfRowStop y - 1]
-        ]
-    secondHalfCoordinates = [ (y,x)
-        | y <- [halfHeight .. height - 1]
-        , x <- [firstHalfRowStart (height - y - 1)
-            .. firstHalfRowStop (height - y -1) - 1]
-        ]
+    secondHalfRowStart :: Int -> Int
+    secondHalfRowStart y = (halfHeight - 1 - (height - y - 1)) * 2
+    secondHalfRowStop :: Int -> Int
+    secondHalfRowStop y = secondHalfRowStart y + ((height - y -1) * 4) + 2
+    -- This is sum of arithmetic progression. Division by two is not used
+    -- because we need two half of the image.
+    dataLength = halfHeight * (2 + ((halfHeight - 1) * 4) + 2)
+    --                         ^   ^                        ^
+    --          first element -/   \<----- nth element ---->/
+
+{-# INLINE dn #-}
+dn :: Int -> Int -> [Int]
+dn x y
+    | (x <= y) = []
+    | P.otherwise = go_dn x
+  where
+    go_dn x'
+        | x' <= y = []
+        | P.otherwise = x' : go_dn (x'-1)
+
+{-# INLINE up #-}
+up :: Int -> Int -> [Int]
+up x y
+    | (x >= y) = []
+    | P.otherwise = go_up x
+  where
+    go_up x'
+        | x' >= y = []
+        | P.otherwise = x' : go_up (x'+1)
 
 getSimplTile :: Tile Proxy -> Get (Tile Identity)
 getSimplTile header@Tile{..} = do
@@ -262,7 +311,7 @@ getSize tiles =
 
 fileToGrayImage :: File -> IO (Image Pixel8)
 fileToGrayImage File{..} = do
-    let (width, height) = traceShowId $ getSize tiles
+    let (width, height) = getSize tiles
     image <- newMutableImage @Pixel8 width height
     mapM_ (fillPixel image) . fold $ fmap dataWihtCoordiantes tiles
     unsafeFreezeImage image
@@ -277,7 +326,7 @@ fileToGrayImage File{..} = do
 
 fileToRGBImage :: Maybe (Vector PixelRGB8) -> File -> IO (Image PixelRGB8)
 fileToRGBImage maybePallet File{..} = do
-    let (width, height) = traceShowId $ getSize tiles
+    let (width, height) = getSize tiles
     image <- newMutableImage @PixelRGB8 width height
     mapM_ (fillPixel image) . fold $ fmap dataWihtCoordiantes tiles
     unsafeFreezeImage image
@@ -288,8 +337,10 @@ fileToRGBImage maybePallet File{..} = do
       where
         coordinates = [(x, y) | y <- [y..y+height-1], x <- [x..x+width-1]]
 
-    fillPixel image (pixel, (x, y)) = writePixel image x y
-        $ fromMaybe defaultPallet maybePallet ! fromIntegral pixel
+    fillPixel image (pixel, (x, y)) = if fromIntegral pixel /= 0
+        then writePixel image x y
+            $ fromMaybe defaultPallet maybePallet ! fromIntegral pixel
+        else pure ()
 
     defaultPallet = fromList
         [ PixelRGB8 0 0 0
