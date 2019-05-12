@@ -28,6 +28,7 @@ dependencies:
   - JuicyPixels
   - Glob
   - filepath
+  - transformers
 
 executables:
   run:

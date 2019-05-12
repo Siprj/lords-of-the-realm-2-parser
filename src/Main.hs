@@ -12,6 +12,8 @@ import Codec.Picture.Types
 import Control.Applicative
 import Control.Monad hiding (replicateM)
 import Control.Monad.ST
+import Control.Monad.Trans.Accum
+import Control.Monad.Trans.Class
 import Data.ByteString hiding (putStrLn, zipWith, head, maximum, zip, replicate, length, take)
 import Data.ByteString.Lazy (toStrict)
 import Data.Either
@@ -29,6 +31,7 @@ import Data.String
 import Data.Traversable
 import Data.Vector hiding (drop, take, maximum, mapM_, mapM, sequence, length)
 import qualified Data.Vector.Mutable as VM
+import qualified Data.Vector.Generic as V
 import Data.Word (Word16, Word32, Word8)
 import Debug.Trace
 import Numeric
@@ -171,18 +174,38 @@ getISOTile header@Tile{..} = do
     -- 900 is precomputed value for base data of the ISO image.
     data' <- getByteString $ traceShowId $ 900 + (fromIntegral extraRows)
         * (rightOffset - leftOffset)
-    pure $ tileHeaderToTile header indices
+    pure $ tileHeaderToTile header (indices data')
   where
-    indices data' = runST do
-        for_ [0..(width `div` 2) - 1] $ \y ->
-            for_ [firstHalfRowStart y .. firstHalfRowStop y] $ \x ->
-
-
+    indices data' = runST $ do
+        indices' <- VM.replicate 0 900
+        q <- flipedEvalAccumT @Int 0 $ do
+            for_ [0 .. halfHeight - 1] $ \y ->
+                for_ [firstHalfRowStart y .. firstHalfRowStop y -1] $ \x -> (do
+                    dataIndex <- look
+                    lift $ VM.write indices' (y * width + x) (data' `index` dataIndex)
+                    add 1)
+        V.basicUnsafeFreeze indices'
+--        q <- runAccum @Int 0 do
+--            for_ [0 .. halfHeight - 1] $ \y ->
+--                for_ [firstHalfRowStart y .. firstHalfRowStop y -1] $ \x ->
+--                    dataIndex <- look
+--                    lift $ write indices' (y * width + x) (data' ! dataIndex)
+--                    add 1
+    flipedEvalAccumT = flip evalAccumT
 
     halfWidth = width `div` 2
     halfHeight = height `div` 2
-    firstHalfRowStart y = (halfWidth - 1 - y) * 2
+    firstHalfRowStart y = (halfHeight - 1 - y) * 2
     firstHalfRowStop y = firstHalfRowStart y + (y * 4) + 2
+    firstHalfCoordinates = [ (y,x)
+        | y <- [0 .. halfHeight - 1]
+        , x <- [firstHalfRowStart y .. firstHalfRowStop y - 1]
+        ]
+    secondHalfCoordinates = [ (y,x)
+        | y <- [halfHeight .. height - 1]
+        , x <- [firstHalfRowStart (height - y - 1)
+            .. firstHalfRowStop (height - y -1) - 1]
+        ]
 
 getSimplTile :: Tile Proxy -> Get (Tile Identity)
 getSimplTile header@Tile{..} = do
