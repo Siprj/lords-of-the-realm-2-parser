@@ -166,12 +166,23 @@ getTile header@Tile{..} = do
 
 getISOTile :: Tile Proxy -> Get (Tile Identity)
 getISOTile header@Tile{..} = do
-    let rightOffset = if extraType == 3 then (width `div` 2) + 1 else width
-    let leftOffset = if extraType == 4 then (width `div` 2) - 1 else 0
+    let rightOffset = if extraType == 3 then halfWidth + 1 else width
+    let leftOffset = if extraType == 4 then halfWidth - 1 else 0
     -- 900 is precomputed value for base data of the ISO image.
     data' <- getByteString $ traceShowId $ 900 + (fromIntegral extraRows)
         * (rightOffset - leftOffset)
-    pure $ tileHeaderToTile header Control.Applicative.empty
+    pure $ tileHeaderToTile header indices
+  where
+    indices data' = runST do
+        for_ [0..(width `div` 2) - 1] $ \y ->
+            for_ [firstHalfRowStart y .. firstHalfRowStop y] $ \x ->
+
+
+
+    halfWidth = width `div` 2
+    halfHeight = height `div` 2
+    firstHalfRowStart y = (halfWidth - 1 - y) * 2
+    firstHalfRowStop y = firstHalfRowStart y + (y * 4) + 2
 
 getSimplTile :: Tile Proxy -> Get (Tile Identity)
 getSimplTile header@Tile{..} = do
