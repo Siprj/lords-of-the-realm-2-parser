@@ -41,3 +41,4 @@ executables:
       - -Wimplicit-prelude
       - -Wmissing-import-lists
       - -O2
+      - -funbox-strict-fields
