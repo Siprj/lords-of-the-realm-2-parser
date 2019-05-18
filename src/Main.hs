@@ -28,7 +28,7 @@ import Data.Proxy
 import Data.Int
 import Data.Maybe
 import Data.Monoid
-import Data.Serialize.Get
+import Data.Persist
 import Data.String
 import Data.Traversable
 import Data.Vector hiding (drop, take, maximum, mapM_, mapM, sequence, length)
@@ -60,6 +60,15 @@ data Tile a = Tile
     , unknowenByte2 :: Word32
     , indicesToPallet :: a (VU.Vector Word8)
     }
+
+getWord8 :: Get Word8
+getWord8 = get
+
+getWord16le :: Get Word16
+getWord16le = get
+
+getWord32le :: Get Word32
+getWord32le = get
 
 {-# INLINE tileHeaderToTile #-}
 tileHeaderToTile :: Tile Proxy -> VU.Vector Word8 -> Tile Identity
@@ -123,7 +132,7 @@ printFileHeaders fHandle = do
 {-# INLINE convertFiles #-}
 convertFiles :: IO ()
 convertFiles = do
-    files <- L.sort <$> globDir1 (compile "*.pl8") "/home/yrid/.local/share/Steam/steamapps/common/Lords of the Realm II/English/Lords of the Realm II/"
+    files <- L.sort <$> globDir1 (compile "A*.pl8") "/home/yrid/.local/share/Steam/steamapps/common/Lords of the Realm II/English/Lords of the Realm II/"
     let inOutFiles = P.zip files $ fmap
             ((flip replaceDirectory) "/home/yrid/pokus2/"
             . (flip replaceExtensions) "png") files
