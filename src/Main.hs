@@ -32,6 +32,7 @@ import Data.Monoid
 import Data.Persist
 import Data.String
 import Data.Traversable
+import Data.Tuple
 import Data.Vector hiding (drop, take, maximum, mapM_, mapM, sequence, length)
 import qualified Data.Vector.Unboxed as VU
 import qualified Data.Vector.Unboxed.Mutable as VM
@@ -95,6 +96,72 @@ data File = File
     , tiles :: [Tile Identity]
     }
   deriving (Show)
+
+getWord8B :: ByteString -> (Word8, ByteString)
+getWord8B d = let (Just v) = BS.uncons d in v
+
+getWord16B :: ByteString -> (Word16, ByteString)
+getWord16B d =
+    let (w1, d1) = getWord8B d in
+    let (w2, d2) = getWord8B d1 in
+    (fromIntegral w1 .|. (fromIntegral w2) `shift` 8, d2)
+
+getWord32B :: ByteString -> (Word32, ByteString)
+getWord32B d =
+    let (w1, d1) = getWord8B d in
+    let (w2, d2) = getWord8B d1 in
+    let (w3, d3) = getWord8B d2 in
+    let (w4, d4) = getWord8B d3 in
+    ( fromIntegral w1
+        .|. (fromIntegral w2) `shift` 8
+        .|. (fromIntegral w3) `shift` 16
+        .|. (fromIntegral w4) `shift` 24
+    , d2
+    )
+
+getTileHeaderB :: ByteString -> (Tile Proxy, ByteString)
+getTileHeaderB d =
+    let (width, d1) = getWord16B d in
+    let (height, d2) = getWord16B d1 in
+    let (offset, d3) = getWord32B d2 in
+    let (x, d4) = getWord16B d3 in
+    let (y, d5) = getWord16B d4 in
+    let (extraType, d6) = getWord16B d5 in
+    let (extraRows, d7) = getWord16B d6 in
+    ( Tile
+        { width = fromIntegral width
+        , height = fromIntegral height
+        , offset = fromIntegral  offset
+        , x = fromIntegral x
+        , y = fromIntegral y
+        , extraType = fromIntegral extraType
+        , extraRows = fromIntegral extraRows
+        , unknowenByte1 = 0
+        , unknowenByte2 = 0
+        -- TODO: Create function wich will extract indices form data.
+        -- TODO: Add parameter with "global" ByteString so we can use it to
+        -- reference particular offset.
+        , indicesToPallet = Proxy
+        }
+    , drop 8 d7
+    )
+
+magic t = tileHeaderToTile t mempty
+
+getFileB :: ByteString -> File
+getFileB d = File 0 numOfTilesB 0 . fmap magic . fst $ getTileHeaders (fromIntegral numOfTilesB) d2
+  where
+    -- Should I use unsafe drop???
+    (numOfTilesB, d1) = getWord16B $ BS.drop 2 d
+    d2 = BS.drop 2 d1
+
+    getTileHeaders :: Int -> ByteString -> ([Tile Proxy], ByteString)
+    getTileHeaders n d'
+        | n P.> 0 =
+            let (tile, d2') = getTileHeaderB d' in
+            let (tiles, dlast) = getTileHeaders (traceShowId (n - 1)) d2' in
+            (tile : tiles, dlast)
+        | P.otherwise = ([], d')
 
 {-# INLINE getPallet #-}
 getPallet :: Get (Vector PixelRGB8)
@@ -305,7 +372,7 @@ getRLEData size = go mempty
 
 {-# INLINE getTileHeader #-}
 getTileHeader :: Get (Tile Proxy)
-getTileHeader = fmap correctextraRows $ Tile
+getTileHeader = fmap correctExtraRows $ Tile
     <$> fmap fromIntegral getWord16le
     <*> fmap fromIntegral getWord16le
     <*> getWord32le
@@ -317,7 +384,7 @@ getTileHeader = fmap correctextraRows $ Tile
     <*> fmap fromIntegral getWord8
     <*> pure Proxy
   where
-    correctextraRows tile@Tile{..} = tile
+    correctExtraRows tile@Tile{..} = tile
         { extraRows = if extraType == 1 then 0 else extraRows
         }
 
