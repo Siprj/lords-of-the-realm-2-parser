@@ -12,6 +12,7 @@ import Codec.Picture.Png
 import Codec.Picture.Types
 import Control.Applicative
 import Control.Monad hiding (replicateM)
+import qualified Control.Monad as M (replicateM)
 import Control.Monad.ST
 import qualified Control.Monad.Trans.State.Strict as S
 import Control.Monad.Trans.Class
@@ -91,7 +92,7 @@ data File = File
     { unknowenByte3 :: Word16
     , numberOfTiles :: Word16
     , unknowenByte4 :: Word32
-    , tiles :: Vector (Tile Identity)
+    , tiles :: [Tile Identity]
     }
   deriving (Show)
 
@@ -173,7 +174,7 @@ getFile = do
     unknowenByte3' <- getWord16le
     numberOfTiles' <- getWord16le
     unknowenByte4' <- getWord32le
-    tiles' <- replicateM (fromIntegral numberOfTiles') getTileHeader
+    tiles' <- M.replicateM (fromIntegral numberOfTiles') getTileHeader
     finalTiles <- mapM (if testBit unknowenByte3' 0 then getRLETile else getTile) tiles'
     pure $ File unknowenByte3' numberOfTiles' unknowenByte4' finalTiles
 
@@ -321,7 +322,7 @@ getTileHeader = fmap correctextraRows $ Tile
         }
 
 {-# INLINE getSize #-}
-getSize :: Vector (Tile a) -> (Int, Int)
+getSize :: [Tile a] -> (Int, Int)
 getSize tiles =
     ( maximum $ fmap (\Tile{..} -> x + width) tiles
     , maximum $ fmap (\Tile{..} -> y + height) tiles
