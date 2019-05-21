@@ -6,6 +6,7 @@
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE Strict #-}
+{-# LANGUAGE RankNTypes #-}
 module Main where
 
 import Codec.Picture.Png
@@ -53,13 +54,13 @@ import Text.Printf (printf, hPrintf)
 data Tile a = Tile
     { width :: Int
     , height :: Int
-    , offset :: Word32
+    , offset :: Int
     , x :: Int
     , y :: Int
     , extraType :: Word32
     , extraRows :: Int
-    , unknowenByte1 :: Word32
-    , unknowenByte2 :: Word32
+    , unknowenByte1 :: Word8
+    , unknowenByte2 :: Word8
     , indicesToPallet :: a (VU.Vector Word8)
     }
 
@@ -112,26 +113,82 @@ getWord32B d =
     let (w2, d2) = getWord8B d1 in
     let (w3, d3) = getWord8B d2 in
     let (w4, d4) = getWord8B d3 in
-    ( fromIntegral w1
+    trace ("w1: " <> show w1 <> "w2: " <> show w2 <> "w3: " <> show w3 <> "w4: " <> show w4)
+        $ (fromIntegral w1
         .|. (fromIntegral w2) `shift` 8
         .|. (fromIntegral w3) `shift` 16
         .|. (fromIntegral w4) `shift` 24
-    , d2
+    , d4
     )
 
-getTileHeaderB :: ByteString -> (Tile Proxy, ByteString)
-getTileHeaderB d =
+getRLEDataB :: ByteString -> Int -> Int -> VU.Vector Word8
+getRLEDataB data' offset size = runST $ do
+    indices <- VM.replicate size 0
+    S.execStateT go (RleState 0 0 indices d)
+    V.basicUnsafeFreeze indices
+  where
+    d = BS.drop offset data'
+
+    go = do
+        n <- getWriteIndex
+        when (n < size) $ do
+            numOfOpaquePixels <- fromIntegral <$> stateReadWord8
+            if numOfOpaquePixels == 0
+                then do
+                    numberOfTransparetnPixels <- fromIntegral <$> stateReadWord8
+                    for_ [0 .. (numberOfTransparetnPixels - 1)]
+                        $ const (writePixelRle 0)
+                    go
+                else do
+                    for_ [0 .. (numOfOpaquePixels - 1)] $ \_ -> do
+                        stateReadWord8 >>= writePixelRle
+                    go
+
+addWriteIndex :: forall s. RleStateRun s ()
+addWriteIndex = S.modify' (\ s@RleState{..} -> s { writeIndex = writeIndex + 1 })
+
+addReadIndex :: forall s. RleStateRun s ()
+addReadIndex = S.modify' (\ s@RleState{..} -> s { readIndex = readIndex + 1 })
+
+getWriteIndex :: forall s. RleStateRun s Int
+getWriteIndex = S.gets writeIndex
+
+writePixelRle :: forall s. Word8 -> RleStateRun s ()
+writePixelRle w = do
+    RleState{..} <- S.get
+    lift $ VM.write indices writeIndex w
+    addWriteIndex
+
+stateReadWord8 :: forall s. RleStateRun s Word8
+stateReadWord8 = do
+    RleState{..} <- S.get
+    let w = data' `index` readIndex
+    addReadIndex
+    pure w
+
+data RleState s = RleState
+    { readIndex :: Int
+    , writeIndex :: Int
+    , indices :: VM.STVector s Word8
+    , data' :: ByteString
+    }
+
+type RleStateRun s = S.StateT (RleState s) (ST s)
+
+
+getTileHeaderB :: ByteString -> ByteString -> (Tile Identity, ByteString)
+getTileHeaderB originalData d =
     let (width, d1) = getWord16B d in
     let (height, d2) = getWord16B d1 in
-    let (offset, d3) = getWord32B d2 in
+    let (offset', d3) = getWord32B d2 in
     let (x, d4) = getWord16B d3 in
     let (y, d5) = getWord16B d4 in
-    let (extraType, d6) = getWord16B d5 in
-    let (extraRows, d7) = getWord16B d6 in
+    let (extraType, d6) = getWord8B d5 in
+    let (extraRows, d7) = getWord8B d6 in
     ( Tile
         { width = fromIntegral width
         , height = fromIntegral height
-        , offset = fromIntegral  offset
+        , offset = fromIntegral offset'
         , x = fromIntegral x
         , y = fromIntegral y
         , extraType = fromIntegral extraType
@@ -141,25 +198,28 @@ getTileHeaderB d =
         -- TODO: Create function wich will extract indices form data.
         -- TODO: Add parameter with "global" ByteString so we can use it to
         -- reference particular offset.
-        , indicesToPallet = Proxy
+        , indicesToPallet = Identity $ getRLEDataB
+            originalData
+            (fromIntegral offset')
+            (fromIntegral width * fromIntegral height)
+--        , indicesToPallet = Identity mempty
         }
-    , drop 8 d7
+    , drop 2 d7
     )
 
-magic t = tileHeaderToTile t mempty
 
 getFileB :: ByteString -> File
-getFileB d = File 0 numOfTilesB 0 . fmap magic . fst $ getTileHeaders (fromIntegral numOfTilesB) d2
+getFileB d = File 0 numOfTilesB 0 . fst $ getTileHeaders (fromIntegral numOfTilesB) d2
   where
     -- Should I use unsafe drop???
     (numOfTilesB, d1) = getWord16B $ BS.drop 2 d
-    d2 = BS.drop 2 d1
+    d2 = BS.drop 4 d1
 
-    getTileHeaders :: Int -> ByteString -> ([Tile Proxy], ByteString)
+    getTileHeaders :: Int -> ByteString -> ([Tile Identity], ByteString)
     getTileHeaders n d'
         | n P.> 0 =
-            let (tile, d2') = getTileHeaderB d' in
-            let (tiles, dlast) = getTileHeaders (traceShowId (n - 1)) d2' in
+            let (tile, d2') = getTileHeaderB d d' in
+            let (tiles, dlast) = getTileHeaders (n - 1) d2' in
             (tile : tiles, dlast)
         | P.otherwise = ([], d')
 
@@ -200,7 +260,7 @@ printFileHeaders fHandle = do
 {-# INLINE convertFiles #-}
 convertFiles :: IO ()
 convertFiles = do
-    files <- L.sort <$> globDir1 (compile "A*.pl8") "/home/yrid/.local/share/Steam/steamapps/common/Lords of the Realm II/English/Lords of the Realm II/"
+    files <- L.sort <$> globDir1 (compile "A2*.pl8") "/home/yrid/.local/share/Steam/steamapps/common/Lords of the Realm II/English/Lords of the Realm II/"
     let inOutFiles = P.zip files $ fmap
             ((flip replaceDirectory) "/home/yrid/pokus2/"
             . (flip replaceExtensions) "png") files
@@ -341,6 +401,8 @@ up x y
         | x' >= y = []
         | P.otherwise = x' : go_up (x'+1)
 
+
+
 {-# INLINE getSimplTile #-}
 getSimplTile :: Tile Proxy -> Get (Tile Identity)
 getSimplTile header@Tile{..} = do
@@ -375,13 +437,13 @@ getTileHeader :: Get (Tile Proxy)
 getTileHeader = fmap correctExtraRows $ Tile
     <$> fmap fromIntegral getWord16le
     <*> fmap fromIntegral getWord16le
-    <*> getWord32le
+    <*> fmap fromIntegral getWord32le
     <*> fmap fromIntegral getWord16le
     <*> fmap fromIntegral getWord16le
     <*> fmap fromIntegral getWord8
     <*> fmap fromIntegral getWord8
-    <*> fmap fromIntegral getWord8
-    <*> fmap fromIntegral getWord8
+    <*> getWord8
+    <*> getWord8
     <*> pure Proxy
   where
     correctExtraRows tile@Tile{..} = tile
