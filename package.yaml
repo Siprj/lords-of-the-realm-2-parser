@@ -29,6 +29,8 @@ dependencies:
   - filepath
   - transformers
   - persist
+  - aeson
+  - vector-th-unbox
 
 executables:
   run:

@@ -19,6 +19,7 @@ import qualified Control.Monad.Trans.State.Strict as S
 import Control.Monad.Trans.Class
 import Data.ByteString hiding (putStrLn, zipWith, head, maximum, zip, replicate, length, take)
 import qualified Data.ByteString as BS
+import Data.Aeson
 import Data.ByteString.Lazy (toStrict)
 import Data.Either
 import Data.Bits
@@ -261,13 +262,17 @@ printFileHeaders fHandle = do
 convertFiles :: IO ()
 convertFiles = do
     files <- L.sort <$> globDir1 (compile "A2*.pl8") "/home/yrid/.local/share/Steam/steamapps/common/Lords of the Realm II/English/Lords of the Realm II/"
+    pallet <- readPallet
     let inOutFiles = P.zip files $ fmap
             ((flip replaceDirectory) "/home/yrid/pokus2/"
             . (flip replaceExtensions) "png") files
-    mapM_ convert inOutFiles
+    mapM_ (convert pallet) inOutFiles
   where
-    convert (input, output) =
-        convertToRgb input output "/home/yrid/.local/share/Steam/steamapps/common/Lords of the Realm II/English/Lords of the Realm II/Base01.256"
+    convert pallet (input, output) =
+        convertToRgb pallet input output
+
+    palletFile = "/home/yrid/.local/share/Steam/steamapps/common/Lords of the Realm II/English/Lords of the Realm II/Base01.256"
+    readPallet = readFile palletFile >>= (eitherToError . runGet getPallet)
 
 {-# INLINE eitherToError #-}
 eitherToError :: Either String b -> IO b
@@ -286,15 +291,25 @@ convertBy f input output = do
     putStrLn $ " Output file: " <> output
     file <- runGet getFile <$> readFile input >>= eitherToError
     image <- f file
+    writeMetaData file $ output -<.> "json"
     writeFile output . toStrict $ encodePng image
 
+instance ToJSON (Tile a) where
+    toJSON Tile{..} = object
+        [ "x" .= x
+        , "y" .= y
+        , "width" .= width
+        , "height" .= height
+        , "extraRows" .= extraRows
+        ]
+
+writeMetaData :: File -> FilePath -> IO ()
+writeMetaData File{..} file = writeFile file . toStrict $ Data.Aeson.encode tiles
+
 {-# INLINE convertToRgb #-}
-convertToRgb :: FilePath -> FilePath -> FilePath -> IO ()
-convertToRgb input output palletFile = do
-    pallet <- readPallet
+convertToRgb :: Vector PixelRGB8 -> FilePath -> FilePath -> IO ()
+convertToRgb pallet input output = do
     convertBy (fileToRGBImage pallet) input output
-  where
-    readPallet = readFile palletFile >>= (eitherToError . runGet getPallet)
 
 getFile :: Get File
 getFile = do
