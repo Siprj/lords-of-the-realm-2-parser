@@ -22,14 +22,16 @@ flags:
 
 dependencies:
   - base >= 4.7 && < 5
-  - vector
-  - bytestring
-  - JuicyPixels
-  - Glob
-  - filepath
-  - transformers
-  - persist
   - aeson
+  - bytestring
+  - containers
+  - deepseq
+  - filepath
+  - Glob
+  - JuicyPixels
+  - persist
+  - transformers
+  - vector
   - vector-th-unbox
 
 executables:
