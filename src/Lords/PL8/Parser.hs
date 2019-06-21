@@ -1,8 +1,6 @@
 {-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE NoImplicitPrelude #-}
-{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
-{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE Strict #-}
 module Lords.PL8.Parser
     ( getPL8
@@ -92,14 +90,14 @@ getPL8 = do
 
 {-# INLINE getTile #-}
 getTile :: Tile Proxy -> Get (Tile Identity)
-getTile header@Tile{..} = do
+getTile header@Tile{..} =
     if extraType == 0
        then getSimplTile header
        else getISOTile header
 
 {-# INLINE getSimplTile #-}
 getSimplTile :: Tile Proxy -> Get (Tile Identity)
-getSimplTile header@Tile{..} = do
+getSimplTile header@Tile{..} =
     tileHeaderToTile header <$> VU.replicateM (height * width) getWord8
 
 {-# INLINE getTileHeader #-}
@@ -145,7 +143,7 @@ getRLEData size = go mempty
 {-# INLINE getISOTile #-}
 getISOTile :: Tile Proxy -> Get (Tile Identity)
 getISOTile header@Tile{..} = do
-    data' <- getByteString $ dataLength + (extraRows)
+    data' <- getByteString $ dataLength + extraRows
         * (rightOffset - leftOffset)
     let magic = tileHeaderToTile header (indices data')
     pure $ magic { height = height + extraRows
@@ -155,35 +153,35 @@ getISOTile header@Tile{..} = do
     indices data' = runST $ do
         indices' <- VM.replicate ((height + extraRows)
             * width) 0
-        flip execStateT 0
-            ( fillTopHalf data' indices'
-            >> fillBottomHalf data' indices'
+        execStateT
+            ( fillHalf
+                [0 .. halfHeight - 1]
+                [firstHalfRowStart y .. firstHalfRowStop y - 1]
+                data'
+                indices'
+            >> fillHalf
+                [halfHeight .. height - 1]
+                [secondHalfRowStart y .. secondHalfRowStop y - 1]
+                data'
+                indices'
             >> fillExtracs data' indices'
             )
+            0
         basicUnsafeFreeze indices'
 
-    fillTopHalf data' indices' = do
-        for_ [0 .. halfHeight - 1] $ \y ->
-            for_ [firstHalfRowStart y .. firstHalfRowStop y - 1] $ \x -> (do
-                dataIndex <- S.get
-                lift $ write indices'
-                    ((y + extraRows) * width + x)
-                    (data' `index` dataIndex)
-                modify (+1))
-
-    fillBottomHalf data' indices' = do
-        for_ [halfHeight .. height - 1] $ \y ->
-            for_ [secondHalfRowStart y .. secondHalfRowStop y - 1] $ \x -> (do
+    fillHalf ys xs data' indices' =
+        for_ ys $ \y ->
+            for_ xs $ \x -> do
                 dataIndex <- S.get
                 lift $ write indices'
                     ((y + extraRows) * width + x)
                     (data' `index` dataIndex)
                 modify (+1)
-                )
 
-    fillExtracs data' indices' = do
+
+    fillExtracs data' indices' =
         for_ (dn extraRows 0) $ \y ->
-            for_ (up leftOffset rightOffset) $ \x -> (do
+            for_ (up leftOffset rightOffset) $ \x -> do
                 let yMod = if x <= halfWidth
                         then y + (halfHeight - 1) - (x `div` 2)
                         else y + (x `div` 2) - (halfHeight - 1)
@@ -194,7 +192,6 @@ getISOTile header@Tile{..} = do
                         (yMod * width + x)
                         (data' `index` dataIndex)
                 modify (+1)
-                )
 
     rightOffset :: Int
     rightOffset = if extraType == 3 then halfWidth + 1 else width
@@ -222,7 +219,7 @@ getISOTile header@Tile{..} = do
 {-# INLINE dn #-}
 dn :: Int -> Int -> [Int]
 dn x y
-    | (x <= y) = []
+    | x <= y = []
     | otherwise = go_dn x
   where
     go_dn x'
@@ -233,7 +230,7 @@ dn x y
 {-# INLINE up #-}
 up :: Int -> Int -> [Int]
 up x y
-    | (x >= y) = []
+    | x >= y = []
     | otherwise = go_up x
   where
     go_up x'

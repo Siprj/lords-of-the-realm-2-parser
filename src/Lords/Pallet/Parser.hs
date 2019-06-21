@@ -1,7 +1,5 @@
 {-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE NoImplicitPrelude #-}
-{-# LANGUAGE RecordWildCards #-}
-{-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE UndecidableInstances #-}
 
 module Lords.Pallet.Parser
@@ -10,11 +8,11 @@ module Lords.Pallet.Parser
     )
   where
 
-import Control.Applicative ((<*>), (*>), pure)
+import Control.Applicative ((<*>), pure)
 import Data.Monoid ((<>))
 import Data.ByteString (readFile)
 import Data.Either (Either)
-import Data.Functor ((<$>), fmap)
+import Data.Functor ((<$>), ($>), fmap)
 import Data.Function (($), (.))
 import Data.Persist (Get, get, runGet)
 import Data.String (String)
@@ -28,7 +26,7 @@ import Lords.Pallet.Types (Pallet, PixelRGBA8(PixelRGBA8))
 
 {-# INLINE getPallet #-}
 getPallet :: Get Pallet
-getPallet = do
+getPallet =
     generateM 256 getPixel
   where
     getPixel' = PixelRGBA8
@@ -38,7 +36,7 @@ getPallet = do
         <*> pure 255
 
     getPixel i
-        | i == 0 = getPixel' *> (pure $ PixelRGBA8 0 0 0 0)
+        | i == 0 = getPixel' $> PixelRGBA8 0 0 0 0
         | otherwise = getPixel'
 
 {-# INLINE parsePallet #-}
