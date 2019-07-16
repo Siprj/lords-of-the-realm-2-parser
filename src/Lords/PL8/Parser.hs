@@ -151,47 +151,41 @@ getISOTile header@Tile{..} = do
                  }
   where
     indices data' = runST $ do
-        indices' <- VM.replicate ((height + extraRows)
-            * width) 0
-        execStateT
-            ( fillHalf
-                [0 .. halfHeight - 1]
-                [firstHalfRowStart y .. firstHalfRowStop y - 1]
-                data'
-                indices'
-            >> fillHalf
-                [halfHeight .. height - 1]
-                [secondHalfRowStart y .. secondHalfRowStop y - 1]
-                data'
-                indices'
+        indices' <- VM.replicate ((height + extraRows)* width) 0
+        flip execStateT 0
+            ( fillTopHalf data' indices'
+            >> fillBottomHalf data' indices'
             >> fillExtracs data' indices'
             )
-            0
         basicUnsafeFreeze indices'
 
-    fillHalf ys xs data' indices' =
-        for_ ys $ \y ->
-            for_ xs $ \x -> do
+    fillTopHalf data' indices' = do
+        for_ [0 .. halfHeight - 1] $ \y ->
+            for_ [firstHalfRowStart y .. firstHalfRowStop y - 1] $ \x -> (do
                 dataIndex <- S.get
-                lift $ write indices'
-                    ((y + extraRows) * width + x)
-                    (data' `index` dataIndex)
+                lift $ write indices' ((y + extraRows) * width + x) (data' `index` dataIndex)
+                modify (+1))
+
+    fillBottomHalf data' indices' = do
+        for_ [halfHeight .. height - 1] $ \y ->
+            for_ [secondHalfRowStart y .. secondHalfRowStop y - 1] $ \x -> (do
+                dataIndex <- S.get
+                lift $ write indices' ((y + extraRows) * width + x) (data' `index` dataIndex)
                 modify (+1)
+                )
 
-
-    fillExtracs data' indices' =
+    fillExtracs data' indices' = do
         for_ (dn extraRows 0) $ \y ->
-            for_ (up leftOffset rightOffset) $ \x -> do
+            for_ (up leftOffset rightOffset) $ \x -> (do
                 let yMod = if x <= halfWidth
                         then y + (halfHeight - 1) - (x `div` 2)
                         else y + (x `div` 2) - (halfHeight - 1)
                 dataIndex <- S.get
                 if (data' `index` dataIndex) == 0
-                    then pure ()
-                    else lift $ write indices'
-                        (yMod * width + x)
-                        (data' `index` dataIndex)
+                   then pure ()
+                   else lift $ write indices' (yMod * width + x) (data' `index` dataIndex)
                 modify (+1)
+                )
 
     rightOffset :: Int
     rightOffset = if extraType == 3 then halfWidth + 1 else width

@@ -23,12 +23,13 @@ import Codec.Picture.Types (Image, MutableImage)
 import Codec.Picture.Types (newMutableImage, unsafeFreezeImage, writePixel)
 import qualified Codec.Picture.Types as Picture
 import Control.Applicative ((<*>), pure)
-import Control.Monad ((>>=), fail, mapM_)
+import Control.Monad ((>>=), fail, mapM_, unless)
 import Control.Monad.ST (RealWorld)
 import Unsafe.Coerce (unsafeCoerce)
 import Data.ByteString.Lazy (toStrict)
 import Data.ByteString (writeFile, readFile)
 import Data.Either (Either(Left, Right))
+import Data.Eq ((==))
 import Data.Foldable (maximum)
 import Data.Function (($), (.), flip)
 import Data.Functor ((<$>), fmap)
@@ -57,7 +58,7 @@ assetPath = "/home/yrid/.local/share/Steam/steamapps/common/Lords of the Realm I
 
 {-# INLINE convertFiles #-}
 convertFiles :: PalletMap -> DuoList -> IO ()
-convertFiles palletMap duoList = do
+convertFiles palletMap duoList =
     mapM_ convertFile duoList
   where
     convertFile :: Duo -> IO ()
@@ -77,14 +78,20 @@ work = do
     palletMap <- createPalletMap duoList assetPath
     convertFiles palletMap duoList
 
+convertFileDebug :: IO ()
+convertFileDebug = do
+    pallet <- parsePallet (assetPath </> "Base01.256") >>= eitherToError
+    convertToRgb pallet (assetPath </> "Base1a.pl8") "/home/yrid/pokus2/Base01.png"
+
+
 {-# INLINE convertToRgb #-}
 convertToRgb :: Vector PixelRGBA8 -> FilePath -> FilePath -> IO ()
-convertToRgb pallet input output = do
+convertToRgb pallet input output =
     convertBy (fileToRGBImage pallet) input output
 
 {-# INLINE convertToGray #-}
 convertToGray :: Vector PixelRGBA8 -> FilePath -> FilePath -> IO ()
-convertToGray pallet input output = do
+convertToGray pallet input output =
     convertBy (fileToGrayImage pallet) input output
 
 {-# INLINE convertBy #-}
@@ -164,7 +171,7 @@ fileToRGBImage pallet PL8{..} = do
         -> IO ()
     fillPixels' image imageData ((x, y) : coordinates) = do
         let (pixel, imageData') = uncons imageData
-        writePixel image x y . toJuicypixels $ pallet ! fromIntegral pixel
+        unless (pixel == 0) $ writePixel image x y . toJuicypixels $ pallet ! fromIntegral pixel
         fillPixels' image imageData' coordinates
     fillPixels' _ _ [] = pure ()
 
