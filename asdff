@@ -132,14 +132,10 @@
 {"palletFile": "Base01.256", "pl8File" : "Castle2c.pl8"},
 {"palletFile": "Base01.256", "pl8File" : "Castle2d.pl8"},
 {"palletFile": "Base01.256", "pl8File" : "Castle.pl8"},
-
 {"palletFile": "T32_bat1.256", "pl8File" : "Catarm1.pl8"},
 {"palletFile": "T32_bat1.256", "pl8File" : "Catarm2.pl8"},
 {"palletFile": "Treasury.256", "pl8File" : "Crossbow.pl8"},
 {"palletFile": "Custom.256", "pl8File" : "Custom.pl8"},
-{"palletFile": "Base01.256", "pl8File" : "Demo1.pl8"},
-{"palletFile": "Base01.256", "pl8File" : "Demo2.pl8"},
-{"palletFile": "Base01.256", "pl8File" : "Demo.pl8"},
 {"palletFile": "T32_bat1.256", "pl8File" : "Engine.pl8"},
 {"palletFile": "Lords2.256", "pl8File" : "Faces.pl8"},
 {"palletFile": "Base01.256", "pl8File" : "Flags1a.pl8"},
@@ -169,7 +165,6 @@
 {"palletFile": "Base01.256", "pl8File" : "Map04.pl8"},
 {"palletFile": "Base01.256", "pl8File" : "Map05.pl8"},
 {"palletFile": "Base01.256", "pl8File" : "Map06.pl8"},
-{"palletFile": "Merchant.256", "pl8File" : "Mercgrid.pl8"},
 {"palletFile": "Merchant.256", "pl8File" : "Merchant.pl8"},
 {"palletFile": "T32_bat1.256", "pl8File" : "Misc_bat.pl8"},
 {"palletFile": "Base01.256", "pl8File" : "Misc_cty.pl8"},
@@ -268,8 +263,6 @@
 {"palletFile": "Base01.256", "pl8File" : "Villani1.pl8"},
 {"palletFile": "Base01.256", "pl8File" : "Villani2.pl8"},
 {"palletFile": "Base01.256", "pl8File" : "Villbord.pl8"},
-{"palletFile": "Base01.256", "pl8File" : "Vill_gd8.pl8"},
-{"palletFile": "Base01.256", "pl8File" : "Villgrid.pl8"},
 {"palletFile": "Base01.256", "pl8File" : "Vill.pl8"},
 {"palletFile": "Base01.256", "pl8File" : "Villtops.pl8"}
 ]
