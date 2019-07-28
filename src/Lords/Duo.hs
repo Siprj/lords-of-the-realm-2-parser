@@ -17,13 +17,12 @@ module Lords.Duo
 
 import Data.Aeson (eitherDecode)
 import Data.Aeson.TH (defaultOptions, deriveJSON)
-import Data.Functor ((<$>))
 import Data.ByteString.Lazy (readFile)
-import Data.Map.Strict (Map)
-import Data.String (String)
 import Data.Either (Either)
-import Text.Show (Show)
+import Data.Functor ((<$>))
+import Data.String (String)
 import System.IO (IO, FilePath)
+import Text.Show (Show)
 
 
 type PalletFileName = String
@@ -40,6 +39,5 @@ type DuoList = [Duo]
 $(deriveJSON defaultOptions ''Duo)
 
 parseDuo :: FilePath -> IO (Either String DuoList)
-parseDuo fileName = do
-    eitherDecode <$> readFile fileName
+parseDuo fileName = eitherDecode <$> readFile fileName
 

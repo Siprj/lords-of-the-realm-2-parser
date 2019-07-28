@@ -34,10 +34,20 @@ dependencies:
   - vector
   - vector-th-unbox
 
+library:
+  source-dirs: src
+  ghc-options:
+    - -Wall
+    - -Wimplicit-prelude
+    - -Wmissing-import-lists
+  when:
+    - condition: flag(pedantic)
+      ghc-options: -Werror
+
 executables:
   run:
     main: Main.hs
-    source-dirs: src
+    source-dirs: app
     ghc-options:
       - -threaded
       - -rtsopts
@@ -46,3 +56,9 @@ executables:
       - -Wmissing-import-lists
       - -O2
       - -funbox-strict-fields
+    dependencies:
+      - lords-of-realms2-parser
+    when:
+      - condition: flag(pedantic)
+        ghc-options: -Werror
+

@@ -15,7 +15,6 @@ module Lords.Pallet.Types
 
 import Data.Function (($), (.))
 import Data.Functor ((<$>))
-import Data.Vector.Unboxed.Deriving (derivingUnbox)
 import Data.Vector.Unboxed (Vector, MVector, Unbox)
 import Data.Word (Word8)
 import GHC.Generics (Generic)
@@ -24,7 +23,6 @@ import Control.DeepSeq (NFData)
 
 import qualified Data.Vector.Generic as G
 import qualified Data.Vector.Generic.Mutable as M
-import qualified Data.Vector.Primitive as P
 
 
 data PixelRGBA8 = PixelRGBA8

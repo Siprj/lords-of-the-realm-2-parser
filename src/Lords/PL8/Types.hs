@@ -16,7 +16,7 @@ import Data.Functor.Identity (Identity(Identity))
 import Data.Int (Int)
 import Data.Proxy (Proxy)
 import Data.Vector.Unboxed (Vector)
-import Data.Word (Word32, Word16, Word8)
+import Data.Word (Word16, Word8)
 import Text.Show (Show)
 
 

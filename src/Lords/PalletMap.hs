@@ -1,9 +1,6 @@
 {-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE NoImplicitPrelude #-}
-{-# LANGUAGE RecordWildCards #-}
-{-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE Strict #-}
-{-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE UndecidableInstances #-}
 
 module Lords.PalletMap
@@ -12,21 +9,19 @@ module Lords.PalletMap
     )
   where
 
-import Data.Map (Map, fromList)
+import Control.Applicative (pure)
+import Control.Monad ((>>=), mapM)
 import Data.Function (($), (.))
 import Data.Functor (fmap)
 import Data.List (zip, nub)
-import Control.Applicative (pure)
-import Control.Monad ((>>=), mapM)
+import Data.Map (Map, fromList)
 import System.FilePath ((</>))
 import System.IO (IO, FilePath)
 
-import Utils (eitherToError)
-import Lords.Pallet.Parser (parsePallet)
-import Lords.Pallet.Types (Pallet, PixelRGBA8(..))
-import Lords.PL8.Parser (parsePL8)
-import Lords.PL8.Types (PL8(..), Tile(..))
 import Lords.Duo (Duo(palletFile), PalletFileName, DuoList)
+import Lords.Pallet.Parser (parsePallet)
+import Lords.Pallet.Types (Pallet)
+import Utils (eitherToError)
 
 
 type PalletMap = Map PalletFileName Pallet
@@ -38,7 +33,7 @@ toUniquePalletNames = nub . fmap palletFile
 createPalletMap :: DuoList -> FilePath -> IO PalletMap
 createPalletMap duoList assetRoot = do
     pallets <- mapM (\p -> parsePallet (assetRoot </> p) >>= eitherToError)
-        $ uniqueDuoList
+        uniqueDuoList
     pure . fromList $ zip uniqueDuoList pallets
   where
     uniqueDuoList = toUniquePalletNames duoList

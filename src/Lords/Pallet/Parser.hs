@@ -9,17 +9,14 @@ module Lords.Pallet.Parser
   where
 
 import Control.Applicative ((<*>), pure)
-import Data.Monoid ((<>))
 import Data.ByteString (readFile)
 import Data.Either (Either)
 import Data.Functor ((<$>), ($>), fmap)
-import Data.Function (($), (.))
 import Data.Persist (Get, get, runGet)
 import Data.String (String)
-import Data.Vector.Unboxed (replicateM, singleton, cons, generateM)
+import Data.Vector.Unboxed (generateM)
 import Prelude ((*), (==), otherwise)
 import System.IO (IO, FilePath)
-import Control.DeepSeq (force)
 
 import Lords.Pallet.Types (Pallet, PixelRGBA8(PixelRGBA8))
 

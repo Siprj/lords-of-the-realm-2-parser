@@ -18,9 +18,9 @@ import Data.ByteString (index, readFile)
 import Data.Either (Either)
 import Data.Eq ((==))
 import Data.Foldable (for_)
-import Data.Function (($), (.), flip)
-import Data.Functor ((<$>), fmap)
-import Data.Functor.Identity (Identity(Identity))
+import Data.Function (($))
+import Data.Functor ((<$>), fmap, void)
+import Data.Functor.Identity (Identity)
 import Data.Int (Int)
 import Data.Monoid (mempty)
 import Data.Persist (Get, get, getByteString, runGet)
@@ -36,7 +36,6 @@ import Prelude
     ( (*)
     , (+)
     , (-)
-    , (/)
     , (<)
     , (<=)
     , (>=)
@@ -44,10 +43,10 @@ import Prelude
     , fromIntegral
     , otherwise
     )
-import System.IO (IO, FilePath)
 import qualified Control.Monad.Trans.State.Strict as S (get)
 import qualified Data.Vector.Unboxed as VU (replicateM)
 import qualified Data.Vector.Unboxed.Mutable as VM (replicate)
+import System.IO (IO, FilePath)
 
 import Lords.PL8.Types
     ( PL8(PL8)
@@ -152,40 +151,38 @@ getISOTile header@Tile{..} = do
   where
     indices data' = runST $ do
         indices' <- VM.replicate ((height + extraRows)* width) 0
-        flip execStateT 0
+        void $ execStateT
             ( fillTopHalf data' indices'
             >> fillBottomHalf data' indices'
             >> fillExtracs data' indices'
-            )
+            ) 0
         basicUnsafeFreeze indices'
 
-    fillTopHalf data' indices' = do
-        for_ [0 .. halfHeight - 1] $ \y ->
-            for_ [firstHalfRowStart y .. firstHalfRowStop y - 1] $ \x -> (do
+    fillTopHalf data' indices' =
+        for_ [0 .. halfHeight - 1] $ \y' ->
+            for_ [firstHalfRowStart y' .. firstHalfRowStop y' - 1] $ \x' -> do
                 dataIndex <- S.get
-                lift $ write indices' ((y + extraRows) * width + x) (data' `index` dataIndex)
-                modify (+1))
-
-    fillBottomHalf data' indices' = do
-        for_ [halfHeight .. height - 1] $ \y ->
-            for_ [secondHalfRowStart y .. secondHalfRowStop y - 1] $ \x -> (do
-                dataIndex <- S.get
-                lift $ write indices' ((y + extraRows) * width + x) (data' `index` dataIndex)
+                lift $ write indices' ((y' + extraRows) * width + x') (data' `index` dataIndex)
                 modify (+1)
-                )
 
-    fillExtracs data' indices' = do
-        for_ (dn extraRows 0) $ \y ->
-            for_ (up leftOffset rightOffset) $ \x -> (do
-                let yMod = if x <= halfWidth
-                        then y + (halfHeight - 1) - (x `div` 2)
-                        else y + (x `div` 2) - (halfHeight - 1)
+    fillBottomHalf data' indices' =
+        for_ [halfHeight .. height - 1] $ \y' ->
+            for_ [secondHalfRowStart y' .. secondHalfRowStop y' - 1] $ \x' -> do
+                dataIndex <- S.get
+                lift $ write indices' ((y' + extraRows) * width + x') (data' `index` dataIndex)
+                modify (+1)
+
+    fillExtracs data' indices' =
+        for_ (dn extraRows 0) $ \y' ->
+            for_ (up leftOffset rightOffset) $ \x' -> do
+                let yMod = if x' <= halfWidth
+                        then y' + (halfHeight - 1) - (x' `div` 2)
+                        else y' + (x' `div` 2) - (halfHeight - 1)
                 dataIndex <- S.get
                 if (data' `index` dataIndex) == 0
                    then pure ()
-                   else lift $ write indices' (yMod * width + x) (data' `index` dataIndex)
+                   else lift $ write indices' (yMod * width + x') (data' `index` dataIndex)
                 modify (+1)
-                )
 
     rightOffset :: Int
     rightOffset = if extraType == 3 then halfWidth + 1 else width
@@ -196,13 +193,13 @@ getISOTile header@Tile{..} = do
     halfHeight :: Int
     halfHeight = height `div` 2
     firstHalfRowStart :: Int -> Int
-    firstHalfRowStart y = (halfHeight - 1 - y) * 2
+    firstHalfRowStart y' = (halfHeight - 1 - y') * 2
     firstHalfRowStop :: Int -> Int
-    firstHalfRowStop y = firstHalfRowStart y + (y * 4) + 2
+    firstHalfRowStop y' = firstHalfRowStart y' + (y' * 4) + 2
     secondHalfRowStart :: Int -> Int
-    secondHalfRowStart y = (halfHeight - 1 - (height - y - 1)) * 2
+    secondHalfRowStart y' = (halfHeight - 1 - (height - y' - 1)) * 2
     secondHalfRowStop :: Int -> Int
-    secondHalfRowStop y = secondHalfRowStart y + ((height - y -1) * 4) + 2
+    secondHalfRowStop y' = secondHalfRowStart y' + ((height - y' -1) * 4) + 2
     -- This is sum of arithmetic progression. Division by two is not used
     -- because we need two half of the image.
     dataLength = halfHeight * (2 + ((halfHeight - 1) * 4) + 2)
@@ -232,4 +229,6 @@ up x y
         | otherwise = x' : go_up (x'+1)
 
 parsePL8 :: FilePath -> IO (Either String PL8)
-parsePL8 file = runGet getPL8 <$> readFile file
+parsePL8 file = do
+    fileContent <- readFile file
+    pure $ runGet getPL8 fileContent
