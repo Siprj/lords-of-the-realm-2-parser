@@ -13,6 +13,7 @@ import Control.Monad ((>>), replicateM)
 import Control.Monad.ST (runST)
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.State.Strict (modify, execStateT)
+import qualified Control.Monad.Trans.State.Strict as S (get)
 import Data.Bits (testBit)
 import Data.ByteString (index, readFile)
 import Data.Either (Either)
@@ -31,6 +32,8 @@ import Data.Traversable (mapM)
 import Data.Vector.Generic (basicUnsafeFreeze)
 import Data.Vector.Unboxed.Mutable (write)
 import Data.Vector.Unboxed (Vector, length, replicate)
+import qualified Data.Vector.Unboxed as VU (replicateM)
+import qualified Data.Vector.Unboxed.Mutable as VM (replicate)
 import Data.Word (Word32, Word16, Word8)
 import Prelude
     ( (*)
@@ -43,9 +46,6 @@ import Prelude
     , fromIntegral
     , otherwise
     )
-import qualified Control.Monad.Trans.State.Strict as S (get)
-import qualified Data.Vector.Unboxed as VU (replicateM)
-import qualified Data.Vector.Unboxed.Mutable as VM (replicate)
 import System.IO (IO, FilePath)
 
 import Lords.PL8.Types
@@ -160,17 +160,18 @@ getISOTile header@Tile{..} = do
 
     fillTopHalf data' indices' =
         for_ [0 .. halfHeight - 1] $ \y' ->
-            for_ [firstHalfRowStart y' .. firstHalfRowStop y' - 1] $ \x' -> do
-                dataIndex <- S.get
-                lift $ write indices' ((y' + extraRows) * width + x') (data' `index` dataIndex)
-                modify (+1)
+            for_ [firstHalfRowStart y' .. firstHalfRowStop y' - 1] $ \x' ->
+                fillIteration y' x' indices' data'
 
     fillBottomHalf data' indices' =
         for_ [halfHeight .. height - 1] $ \y' ->
-            for_ [secondHalfRowStart y' .. secondHalfRowStop y' - 1] $ \x' -> do
-                dataIndex <- S.get
-                lift $ write indices' ((y' + extraRows) * width + x') (data' `index` dataIndex)
-                modify (+1)
+            for_ [secondHalfRowStart y' .. secondHalfRowStop y' - 1] $ \x' ->
+                fillIteration y' x' indices' data'
+
+    fillIteration y' x' indices' data' = do
+        dataIndex <- S.get
+        lift $ write indices' ((y' + extraRows) * width + x') (data' `index` dataIndex)
+        modify (+1)
 
     fillExtracs data' indices' =
         for_ (dn extraRows 0) $ \y' ->

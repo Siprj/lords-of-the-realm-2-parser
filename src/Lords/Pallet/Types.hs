@@ -13,13 +13,13 @@ module Lords.Pallet.Types
     )
   where
 
+import Control.DeepSeq (NFData)
 import Data.Function (($), (.))
 import Data.Functor ((<$>))
 import Data.Vector.Unboxed (Vector, MVector, Unbox)
 import Data.Word (Word8)
 import GHC.Generics (Generic)
 import Prelude (undefined)
-import Control.DeepSeq (NFData)
 
 import qualified Data.Vector.Generic as G
 import qualified Data.Vector.Generic.Mutable as M
