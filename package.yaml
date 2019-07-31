@@ -22,6 +22,7 @@ flags:
 
 dependencies:
   - base >= 4.7 && < 5
+  - abstract-par
   - aeson
   - bytestring
   - containers
@@ -29,6 +30,7 @@ dependencies:
   - filepath
   - Glob
   - JuicyPixels
+  - monad-par
   - persist
   - transformers
   - vector

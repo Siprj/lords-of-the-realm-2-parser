@@ -12,13 +12,11 @@ module Lords
     , parsePL8
     , parsePallet
     , convertFiles
-    , convertFileDebug
-    , convertDebugPallet
-    , work
+    , convertUsingDuoList
     )
   where
 
-import Codec.Picture.Png (PngSavable, encodePng)
+import Codec.Picture.Png (encodePng)
 import Codec.Picture.Types
     ( Image
     , MutableImage
@@ -29,7 +27,10 @@ import Codec.Picture.Types
 import qualified Codec.Picture.Types as Picture
 import Control.Applicative (pure)
 import Control.Monad ((>>=), fail, mapM_, unless)
+import Control.Monad.IO.Class (liftIO)
 import Control.Monad.ST (RealWorld)
+import Control.Monad.Par.IO (runParIO)
+import Control.Monad.Par.Class (fork)
 import Data.ByteString.Lazy (toStrict)
 import Data.ByteString (writeFile)
 import Data.Either (Either(Left, Right))
@@ -39,7 +40,7 @@ import Data.Function (($), (.))
 import Data.Functor (fmap)
 import Data.Functor.Identity (Identity, runIdentity)
 import Data.Int (Int)
-import qualified Data.Map as M ((!), toList)
+import qualified Data.Map as M ((!))
 import Data.Semigroup ((<>))
 import Data.String (String)
 import Data.Vector.Unboxed ((!), Vector, head, splitAt)
@@ -74,7 +75,7 @@ assetPath = "/home/yrid/.local/share/Steam/steamapps/common/Lords of the Realm I
 
 {-# INLINE convertFiles #-}
 convertFiles :: PalletMap -> DuoList -> IO ()
-convertFiles palletMap = mapM_ convertFile
+convertFiles palletMap = runParIO . mapM_ (fork . liftIO . convertFile)
   where
     convertFile :: Duo -> IO ()
     convertFile Duo{..} = do
@@ -84,43 +85,19 @@ convertFiles palletMap = mapM_ convertFile
                 "/home/yrid/pokus2/" </> replaceExtensions pl8File "png"
         convertToRgb pallet fileName outFileName
 
-work :: IO ()
-work = do
+convertUsingDuoList :: IO ()
+convertUsingDuoList = do
     duoList <- parseDuo "duo-list.json" >>= eitherToError
     palletMap <- createPalletMap duoList assetPath
     convertFiles palletMap duoList
 
-convertFileDebug :: IO ()
-convertFileDebug = do
-    pallet <- parsePallet (assetPath </> "Demo.256") >>= eitherToError
-    convertToRgb pallet (assetPath </> "Demo1.pl8") "/home/yrid/pokus2/Demo1.png"
-
-convertDebugPallet :: IO ()
-convertDebugPallet = do
-    duoList <- parseDuo "duo-list.json" >>= eitherToError
-    palletMap <- createPalletMap duoList assetPath
-    mapM_ go $ M.toList palletMap
-  where
-    go (palletName, pallet) =
-        convertToRgb pallet (assetPath </> "Demo1.pl8") $ "/home/yrid/pokus2/Demo1" <> palletName <> ".png"
-
 {-# INLINE convertToRgb #-}
-convertToRgb :: Vector PixelRGBA8 -> FilePath -> FilePath -> IO ()
-convertToRgb pallet = convertBy (fileToRGBImage pallet)
-
-{-# INLINE convertBy #-}
-convertBy
-    :: PngSavable a
-    => (PL8 -> IO (Image a))
-    -> FilePath
-    -> FilePath
-    -> IO ()
-convertBy f input output = do
+convertToRgb :: Pallet -> FilePath -> FilePath -> IO ()
+convertToRgb pallet input output = do
     putStrLn $ "Input file: " <> input
     putStrLn $ " Output file: " <> output
     file <- parsePL8 input >>= eitherToError
-    image <- f file
---    writeMetaData file $ output -<.> "json"
+    image <- fileToRGBImage pallet file
     writeFile output . toStrict $ encodePng image
 
 {-# INLINE eitherToError #-}
@@ -128,7 +105,7 @@ eitherToError :: Either String b -> IO b
 eitherToError (Right a) = pure a
 eitherToError (Left e) = fail e
 
-fileToRGBImage :: Vector PixelRGBA8 -> PL8 -> IO (Image Picture.PixelRGBA8)
+fileToRGBImage :: Pallet -> PL8 -> IO (Image Picture.PixelRGBA8)
 fileToRGBImage pallet PL8{..} = do
     let (width, height) = getSize tiles
     image <- newMutableImage width height
