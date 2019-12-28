@@ -16,7 +16,7 @@ module Lords
     )
   where
 
-import Codec.Picture.Png (encodePng)
+import Codec.Picture.Bitmap (encodeBitmap)
 import Codec.Picture.Types
     ( Image
     , MutableImage
@@ -82,7 +82,7 @@ convertFiles palletMap = runParIO . mapM_ (fork . liftIO . convertFile)
         let pallet = palletMap M.! palletFile
         let fileName = assetPath </> pl8File
         let outFileName =
-                "/home/yrid/pokus2/" </> replaceExtensions pl8File "png"
+                "/home/yrid/pokus1/" </> replaceExtensions pl8File "bmp"
         convertToRgb pallet fileName outFileName
 
 convertUsingDuoList :: IO ()
@@ -98,7 +98,7 @@ convertToRgb pallet input output = do
     putStrLn $ " Output file: " <> output
     file <- parsePL8 input >>= eitherToError
     image <- fileToRGBImage pallet file
-    writeFile output . toStrict $ encodePng image
+    writeFile output . toStrict $ encodeBitmap image
 
 {-# INLINE eitherToError #-}
 eitherToError :: Either String b -> IO b
