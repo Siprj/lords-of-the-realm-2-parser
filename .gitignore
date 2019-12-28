@@ -1,2 +1,4 @@
 *.cabal
 .stack-work
+build/
+.clangd/
