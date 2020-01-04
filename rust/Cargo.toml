@@ -1,0 +1,11 @@
+[package]
+name = "lords-or-realms-2"
+version = "0.1.0"
+authors = ["Jan Sipr <sipr.jan@gmail.com>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+nom = "5.0.0"
+png = "0.15.2"
