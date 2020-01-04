@@ -20,7 +20,7 @@ PalletColor* readPallet(const char *filePath)
 
   PalletColor *pallet = new PalletColor[256];
 
-  file.read(reinterpret_cast<char *>(pallet), 256 * 3);
+  file.read(reinterpret_cast<char *>(pallet), 256 * 4);
 
   return pallet;
 }
