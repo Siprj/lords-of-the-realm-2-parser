@@ -21,16 +21,18 @@ pub struct TileHeader {
 
 #[derive(Debug)]
 pub struct Pl8 {
+    pub width: u32,
+    pub height: u32,
     pub tiles: Vec<Tile>,
 }
 
 #[derive(Debug)]
 pub struct Tile {
-    pub width: u16,
-    pub height: u16,
-    pub x: u16,
-    pub y: u16,
-    pub extra_rows: u8,
+    pub width: u32,
+    pub height: u32,
+    pub x: u32,
+    pub y: u32,
+    pub extra_rows: u32,
     pub pallet_indices: Vec<u8>,
 }
 
@@ -68,11 +70,11 @@ fn parse_simple<'a>(i: &'a [u8], tile_header: &TileHeader) -> IResult<&'a [u8], 
     Ok((
         i,
         Tile {
-            width: tile_header.width,
-            height: tile_header.height,
-            x: tile_header.x,
-            y: tile_header.y,
-            extra_rows: 0u8,
+            width: tile_header.width.into(),
+            height: tile_header.height.into(),
+            x: tile_header.x.into(),
+            y: tile_header.y.into(),
+            extra_rows: 0,
             pallet_indices: data[..width * height].to_vec(),
         },
     ))
@@ -82,12 +84,10 @@ fn parse_rle<'a>(i: &'a [u8], tile_header: &TileHeader) -> IResult<&'a [u8], Til
     // TODO: What about all this unwrap stuff.
     let offset: usize = tile_header.offset.try_into().unwrap();
     let data = &i[offset..];
-    let width = tile_header.width;
-    let height = tile_header.height;
     let mut pallet_indices: Vec<u8> = Vec::new();
 
-    let w_width: usize = width.try_into().unwrap();
-    let w_height: usize = height.try_into().unwrap();
+    let w_width: usize = tile_header.width.try_into().unwrap();
+    let w_height: usize = tile_header.height.try_into().unwrap();
     let to_fill: usize = w_width * w_height;
     pallet_indices.reserve(to_fill);
 
@@ -113,14 +113,15 @@ fn parse_rle<'a>(i: &'a [u8], tile_header: &TileHeader) -> IResult<&'a [u8], Til
             }
         }
     }
+
     Ok((
         i,
         Tile {
-            width,
-            height,
-            x: tile_header.x,
-            y: tile_header.y,
-            extra_rows: 0u8,
+            width: tile_header.width.into(),
+            height: tile_header.height.into(),
+            x: tile_header.x.into(),
+            y: tile_header.y.into(),
+            extra_rows: 0,
             pallet_indices,
         },
     ))
@@ -193,15 +194,19 @@ fn parse_iso<'a>(i: &'a [u8], tile_header: &TileHeader) -> IResult<&'a [u8], Til
             pallet_indices[(y * width) + x] = pallet_index;
         }
     }
-    let kwa: u16 = tile_header.extra_rows.into();
+    let extra_rows: u32 = tile_header.extra_rows.into();
+    let x: u32 = tile_header.x.into();
+    let y: u32 = tile_header.y.into();
+    let height: u32 = tile_header.height.into();
+    let width: u32 = tile_header.width.into();
     Ok((
         i,
         Tile {
-            width: tile_header.width,
-            height: tile_header.height + kwa,
-            x: tile_header.x,
-            y: tile_header.y + kwa,
-            extra_rows: 0u8,
+            x,
+            y: y - extra_rows,
+            width,
+            height: height + extra_rows,
+            extra_rows,
             pallet_indices,
         },
     ))
@@ -245,7 +250,27 @@ fn parse_pl8(orig_i: &[u8]) -> IResult<&[u8], Pl8> {
         }
     }
 
-    Ok((for_input, Pl8 { tiles }))
+    let height = tiles
+        .iter()
+        .map(|v| v.height + v.y)
+        .max()
+        .expect("No tiles present in file!!!")
+        .into();
+    let width = tiles
+        .iter()
+        .map(|v| v.width + v.x)
+        .max()
+        .expect("No tiles present in file!!!")
+        .into();
+
+    Ok((
+        for_input,
+        Pl8 {
+            height,
+            width,
+            tiles,
+        },
+    ))
 }
 
 pub fn read_pl8(path: &Path) -> std::io::Result<Pl8> {
@@ -254,5 +279,6 @@ pub fn read_pl8(path: &Path) -> std::io::Result<Pl8> {
     file.read_to_end(&mut data)?;
 
     let (_, pl8) = parse_pl8(&data).unwrap();
+
     Ok(pl8)
 }
