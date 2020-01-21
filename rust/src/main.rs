@@ -8,6 +8,8 @@ mod pallet;
 use pallet::*;
 mod pl8;
 use pl8::*;
+mod duo;
+use duo::*;
 
 pub struct Image {
     height: u32,
@@ -41,8 +43,8 @@ fn pl8_to_image(pl8: &Pl8, pallet: &Pallet) -> Image {
     }
 }
 
-fn to_png(image: &Image) {
-    let file = File::create("image").unwrap();
+fn to_png(image: &Image, image_file_path: &Path) {
+    let file = File::create(image_file_path).unwrap();
     let ref mut w = BufWriter::new(file);
 
     let mut encoder = png::Encoder::new(w, image.width, image.height);
@@ -55,15 +57,29 @@ fn to_png(image: &Image) {
 fn fill_color(data: &mut [u8], pixel_index: usize, color: &PalletColor) {
     let pixel_index_ = pixel_index * 4;
 
-    data[pixel_index_] = color.r;
-    data[pixel_index_ + 1] = color.g;
-    data[pixel_index_ + 2] = color.b;
-    data[pixel_index_ + 3] = color.a;
+    if color.a == 255 {
+        data[pixel_index_] = color.r;
+        data[pixel_index_ + 1] = color.g;
+        data[pixel_index_ + 2] = color.b;
+        data[pixel_index_ + 3] = color.a;
+    }
 }
 
+const ASSET_DIRECTORY: &'static str =
+    "/home/yrid/.steam/steam/steamapps/common/Lords of the Realm II/English/Lords of the Realm II/";
+const RESULT_DIRECTORY: &'static str = "/home/yrid/pokus4/";
+
 fn main() {
-    let pallet = read_pallet(Path::new("Base01.256")).unwrap();
-    let pl8 = read_pl8(Path::new("Roads1a.pl8")).unwrap();
-    let image = pl8_to_image(&pl8, &pallet);
-    to_png(&image);
+    let asset_directory_path = Path::new(ASSET_DIRECTORY);
+    let result_directory_path = Path::new(RESULT_DIRECTORY);
+    for (pallet_file_name, pl8_file) in FILE_ASSOCIATION {
+        let pallet = read_pallet(&asset_directory_path.join(pallet_file_name)).unwrap();
+
+        let asset_file = asset_directory_path.join(pl8_file);
+        let destination_file = result_directory_path.join(&pl8_file).with_extension("png");
+        println!("File {} -> {}", asset_file.to_str().unwrap(), destination_file.to_str().unwrap());
+        let pl8 = read_pl8(&asset_file).unwrap();
+        let image = pl8_to_image(&pl8, &pallet);
+        to_png(&image, &destination_file);
+    }
 }
