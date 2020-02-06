@@ -1,7 +1,8 @@
 // For reading and opening files
+use rayon::prelude::*;
 use std::convert::TryInto;
 use std::fs::File;
-use std::io::BufWriter;
+use std::io::{BufWriter, Write};
 use std::path::Path;
 
 mod pallet;
@@ -72,14 +73,23 @@ const RESULT_DIRECTORY: &'static str = "/home/yrid/pokus4/";
 fn main() {
     let asset_directory_path = Path::new(ASSET_DIRECTORY);
     let result_directory_path = Path::new(RESULT_DIRECTORY);
-    for (pallet_file_name, pl8_file) in FILE_ASSOCIATION {
+    FILE_ASSOCIATION.par_iter().for_each(|(pallet_file_name, pl8_file)| {
         let pallet = read_pallet(&asset_directory_path.join(pallet_file_name)).unwrap();
 
         let asset_file = asset_directory_path.join(pl8_file);
         let destination_file = result_directory_path.join(&pl8_file).with_extension("png");
-        println!("File {} -> {}", asset_file.to_str().unwrap(), destination_file.to_str().unwrap());
+        let meta_data_file = result_directory_path.join(&pl8_file).with_extension("json");
+        println!(
+            "File {} -> {}",
+            asset_file.to_str().unwrap(),
+            destination_file.to_str().unwrap()
+        );
         let pl8 = read_pl8(&asset_file).unwrap();
         let image = pl8_to_image(&pl8, &pallet);
         to_png(&image, &destination_file);
-    }
+
+        let serialized = serde_json::to_string(&pl8).unwrap();
+        let mut file = File::create(meta_data_file).unwrap();
+        file.write_all(&serialized.as_bytes()).unwrap();
+    });
 }

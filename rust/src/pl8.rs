@@ -1,6 +1,7 @@
 use nom::error::{ErrorKind, ParseError};
 use nom::Err;
 use nom::IResult;
+use serde::ser::{Serialize, SerializeStruct, Serializer};
 use std::cmp::min;
 use std::convert::TryInto;
 use std::fs::File;
@@ -26,6 +27,20 @@ pub struct Pl8 {
     pub tiles: Vec<Tile>,
 }
 
+impl Serialize for Pl8 {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        // 3 is the number of fields in the struct.
+        let mut state = serializer.serialize_struct("Pl8", 3)?;
+        state.serialize_field("width", &self.width)?;
+        state.serialize_field("height", &self.height)?;
+        state.serialize_field("tiles", &self.tiles)?;
+        state.end()
+    }
+}
+
 #[derive(Debug)]
 pub struct Tile {
     pub width: u32,
@@ -34,6 +49,22 @@ pub struct Tile {
     pub y: u32,
     pub extra_rows: u32,
     pub pallet_indices: Vec<u8>,
+}
+
+impl Serialize for Tile {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        // 3 is the number of fields in the struct.
+        let mut state = serializer.serialize_struct("Tile", 5)?;
+        state.serialize_field("width", &self.width)?;
+        state.serialize_field("height", &self.height)?;
+        state.serialize_field("x", &self.x)?;
+        state.serialize_field("y", &self.y)?;
+        state.serialize_field("extra_rows", &self.extra_rows)?;
+        state.end()
+    }
 }
 
 fn parse_tile_header(i: &[u8]) -> IResult<&[u8], TileHeader> {
