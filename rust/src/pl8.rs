@@ -190,8 +190,9 @@ fn parse_iso<'a>(i: &'a [u8], tile_header: &TileHeader) -> IResult<&'a [u8], Til
 
             let pallet_index = data[index];
             index += 1;
-
-            pallet_indices[(y * width) + x] = pallet_index;
+            if pallet_index != 0 {
+                pallet_indices[(y * width) + x] = pallet_index;
+            }
         }
     }
     let extra_rows: u32 = tile_header.extra_rows.into();

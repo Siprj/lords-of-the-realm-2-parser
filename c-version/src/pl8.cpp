@@ -105,8 +105,8 @@ Tile isoTile(TileHeader *tileHeader, std::vector<char> &fileData)
 
       uint8_t palletIndex = data[readData];
       ++readData;
-
-      tile.pixels[(y * tile.width) + x] = palletIndex;
+      if (palletIndex != 0)
+        tile.pixels[(y * tile.width) + x] = palletIndex;
     }
   }
   return tile;
