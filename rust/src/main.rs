@@ -49,7 +49,7 @@ fn to_png(image: &Image, image_file_path: &Path) {
     let ref mut w = BufWriter::new(file);
 
     let mut encoder = png::Encoder::new(w, image.width, image.height);
-    encoder.set_color(png::ColorType::RGBA);
+    encoder.set_color(png::ColorType::Rgba);
     encoder.set_depth(png::BitDepth::Eight);
     let mut writer = encoder.write_header().unwrap();
     writer.write_image_data(&image.data).unwrap(); // Save
